@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 type command struct {
@@ -47,11 +48,12 @@ func (g *gnoDets) BootstrapBuild(buildDirLocation string, bin string, source str
 	if len(g.buildDir) == 0 {
 		logMsg("Build directory not provided", "error")
 	} else {
-		logMsg("Creating build directory", "info")
 		err := os.Mkdir(g.buildDir, 0o770)
 		if err != nil {
 			logMsg(err.Error(), "warn")
 			logMsg("Skipping build dir creation", "info")
+		} else {
+			logMsg("Created build directory", "info")
 		}
 	}
 }
@@ -62,12 +64,7 @@ func (g gnoDets) CopyResources(src string) {
 }
 
 // Add commands to be executed
-func (g *gnoDets) AddCommand(name string, bg bool, opts ...string) {
-
-	if bg {
-		opts = append(opts, "&")
-	}
-
+func (g *gnoDets) AddCommand(name string, opts ...string) {
 	c := &command{
 		name: name,
 		opts: opts,
@@ -79,16 +76,17 @@ func (g *gnoDets) AddCommand(name string, bg bool, opts ...string) {
 func runCommands(g gnoDets) {
 	if len(g.commands) >= 1 {
 		for _, v := range g.commands {
-			logMsg("Running command "+v.name, "info")
-			cmd := exec.Command(v.name, v.opts...)
-			res, err := cmd.Output()
+			ms := fmt.Sprintf("Running command: `%s`", v.name)
+			logMsg(ms, "info")
+			res, err := exec.Command(v.name, v.opts...).Output()
 			if err != nil {
 				logMsg(err.Error(), "error")
+			} else {
+				fmt.Println(string(res))
 			}
-			fmt.Println("\n" + string(res))
 		}
 	} else {
-		logMsg("No commands passed, skipping", "info")
+		logMsg("No commands, skipping", "info")
 	}
 }
 
@@ -97,6 +95,8 @@ func (g gnoDets) Run() {
 	runCommands(g)
 }
 
+// Builds the binary and runs the commands Synchronously
+// So they need to be ordered correctly
 func (g gnoDets) Build() {
 	buildBinary(g, true)
 	runCommands(g)
@@ -104,13 +104,12 @@ func (g gnoDets) Build() {
 
 func buildBinary(g gnoDets, build bool) {
 	if build {
-		logMsg("Building Binary", "info")
 		binLoc := g.buildDir + separator + g.binName
 		err := exec.Command("go", "build", "-o", binLoc, g.src).Run()
 		if err != nil {
 			logMsg(err.Error(), "error")
 		}
-		m := fmt.Sprintf("Built Binary [%s]", binLoc)
+		m := fmt.Sprintf("Built Binary -> %s", binLoc)
 		logMsg(m, "info")
 	} else {
 		exec.Command("go", "run", g.src).Run()
@@ -118,34 +117,9 @@ func buildBinary(g gnoDets, build bool) {
 }
 
 func copyDir(src string, dest string) {
-	ms := fmt.Sprintf("Copying [%s] to [%s]", src, dest)
-	logMsg(ms, "info")
-
 	if dest == src {
 		logMsg("Cannot copy a folder into itself!", "error")
-	}
-
-	f, err := os.Open(src)
-	if err != nil {
-		logMsg(err.Error(), "error")
-	}
-
-	file, err := f.Stat()
-	if err != nil {
-		logMsg(err.Error(), "error")
-	}
-
-	if !file.IsDir() {
-		msg := file.Name() + " is not a directory!"
-		logMsg(msg, "error")
-	}
-
-	err = os.Mkdir(dest+separator+src, 0o770)
-	if err != nil {
-		logMsg(err.Error(), "warn")
-		logMsg("Skipping dir creation", "info")
-	} else {
-		logMsg("Created "+dest+separator+src, "info")
+		return
 	}
 
 	files, err := os.ReadDir(src)
@@ -154,23 +128,29 @@ func copyDir(src string, dest string) {
 	}
 
 	for _, f := range files {
+		srcPath := filepath.Join(src, f.Name())
+		destPath := filepath.Join(dest, f.Name())
 
 		if f.IsDir() {
-			copyDir(src+separator+f.Name(), dest+separator+src+f.Name())
-		}
-
-		if !f.IsDir() {
-
-			content, err := os.ReadFile(src + separator + f.Name())
-			if err != nil {
-				logMsg(err.Error(), "error")
-
-			}
-
-			err = os.WriteFile(dest+separator+src+f.Name(), content, 0755)
+			copyDir(srcPath, destPath)
+		} else {
+			content, err := os.ReadFile(srcPath)
 			if err != nil {
 				logMsg(err.Error(), "error")
 			}
+
+			err = os.MkdirAll(filepath.Dir(destPath), 0770)
+			if err != nil {
+				logMsg(err.Error(), "error")
+				logMsg("Skipping dir creation", "info")
+			}
+
+			err = os.WriteFile(destPath, content, 0644)
+			if err != nil {
+				logMsg(err.Error(), "error")
+			}
+
+			logMsg(fmt.Sprintf("Copied %s -> %s", srcPath, destPath), "info")
 		}
 	}
 }
