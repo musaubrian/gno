@@ -1,7 +1,9 @@
 package gno
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -113,19 +115,36 @@ func spaceCmdOpts(opts ...string) []string {
 	return spacedOut
 }
 
-func runCommands(g gnoDets) {
+func printOutput(reader io.Reader) {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		fmt.Println(scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		logMsg("Error reading output: "+err.Error(), "error")
+	}
+}
+
+func (g gnoDets) RunCommands() {
 	if len(g.commands) >= 1 {
 		for _, v := range g.commands {
 			opts := spaceCmdOpts(v.opts...)
 			ms := fmt.Sprintf("Running command: `%s %s`", v.name, formatOpts(v.opts))
 			logMsg(ms, "cmd")
-			res, err := exec.Command(v.name, opts...).CombinedOutput()
+			cmd := exec.Command(v.name, opts...)
+
+			res, err := cmd.StdoutPipe()
 			if err != nil {
-				logMsg(string(res), "warn")
 				logMsg(err.Error(), "error")
-			} else {
-				fmt.Println(string(res))
 			}
+
+			stdErr, err := cmd.StderrPipe()
+			if err != nil {
+				logMsg(err.Error(), "error")
+			}
+			go printOutput(res)
+			go printOutput(stdErr)
 		}
 	} else {
 		logMsg("No commands, skipping", "info")
@@ -136,7 +155,6 @@ func runCommands(g gnoDets) {
 // So they need to be ordered correctly
 func (g gnoDets) Build() {
 	buildBinary(g)
-	runCommands(g)
 }
 
 func buildBinary(g gnoDets) {
