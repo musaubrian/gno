@@ -34,8 +34,9 @@ func main(){
 	g.CopyResources("assets")
 	g.CopyResources("more_assets")
 	g.CopyResources("even_single_files")
+	g.AddCommand("echo", "hello", "world")
 	g.AddCommand("./output_dir/binary_name")
 	g.Build() // Builds the binary
-	g.RunCommands()
+	g.RunCommandsSync()
 }
 ```
